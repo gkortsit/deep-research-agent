@@ -21,7 +21,12 @@ from subagents.research_evaluator_agent import (
     research_evaluator_agent,
 )
 from subagents.search_agent import search_agent
-from subagents.writer_agent import ReportData, writer_agent
+from subagents.writer_agent import (
+    ReportData,
+    build_writer_revision_input,
+    writer_agent,
+)
+from subagents.writer_critic_agent import WriterCritique, writer_critic_agent
 from printer.main import Printer
 from report_writer import save_report
 
@@ -56,8 +61,7 @@ class ResearchManager:
             search_plan = await self._plan_with_critique(query)
             tagged_results = await self._perform_searches(search_plan.searches)
             tagged_results = await self._evaluate_and_fill_gaps(query, tagged_results)
-            search_results = [entry["summary"] for entry in tagged_results]
-            report = await self._write_report(query, search_results)
+            report = await self._write_with_critique(query, tagged_results)
 
             final_report = f"Report summary\n\n{report.short_summary}"
             self.printer.update_item("final_report", final_report, is_done=True)
@@ -294,6 +298,96 @@ class ResearchManager:
             lines.append(
                 f"[id={entry['id']}] query={entry['query']}\nsummary: {entry['summary']}\n"
             )
+        return "\n".join(lines)
+
+    async def _write_with_critique(
+        self, query: str, tagged_results: list[TaggedResult]
+    ) -> ReportData:
+        summaries = [entry["summary"] for entry in tagged_results]
+        report = await self._write_report(query, summaries)
+
+        if not config.ENABLE_WRITER_CRITIQUE:
+            return report
+
+        with custom_span("Writer critique"):
+            accepted = False
+            for revision in range(1, config.WRITER_CRITIQUE_MAX_REVISIONS + 1):
+                critique_label = (
+                    f"Critiquing report (rev {revision}/{config.WRITER_CRITIQUE_MAX_REVISIONS})"
+                )
+                self.printer.update_item("reviewing", f"{critique_label}...")
+                try:
+                    critique_result = await self._run_with_ticker(
+                        writer_critic_agent,
+                        self._format_report_for_critique(query, summaries, report),
+                        "reviewing",
+                        critique_label,
+                    )
+                    critique = critique_result.final_output_as(WriterCritique)
+                except Exception as e:
+                    self.printer.update_item(
+                        "reviewing",
+                        f"Critique failed ({type(e).__name__}); keeping current report",
+                        is_done=True,
+                    )
+                    return report
+
+                if (
+                    critique.is_sufficient
+                    or critique.score >= config.WRITER_CRITIQUE_SCORE_THRESHOLD
+                ):
+                    self.printer.update_item(
+                        "reviewing",
+                        f"Report accepted (score {critique.score}/10)",
+                        is_done=True,
+                    )
+                    accepted = True
+                    break
+
+                rewrite_label = f"Report score {critique.score}/10, rewriting"
+                self.printer.update_item("reviewing", f"{rewrite_label}...")
+                try:
+                    report = await self._write_report(
+                        query,
+                        summaries,
+                        input_override=build_writer_revision_input(
+                            query,
+                            summaries,
+                            report,
+                            critique.structure_issues,
+                            critique.faithfulness_issues,
+                            critique.coverage_issues,
+                            critique.suggestions,
+                        ),
+                    )
+                except Exception as e:
+                    self.printer.update_item(
+                        "reviewing",
+                        f"Rewrite failed ({type(e).__name__}); keeping prior report",
+                        is_done=True,
+                    )
+                    return report
+
+            if not accepted:
+                self.printer.update_item(
+                    "reviewing",
+                    "Revision cap reached; using last report",
+                    is_done=True,
+                )
+            return report
+
+    def _format_report_for_critique(
+        self, query: str, summaries: list[str], report: ReportData
+    ) -> str:
+        lines = [f"Original query: {query}", "", "Research summaries:"]
+        for i, summary in enumerate(summaries):
+            lines.append(f"[id={i}] {summary}\n")
+        lines.append("")
+        lines.append("Current report — short summary:")
+        lines.append(report.short_summary)
+        lines.append("")
+        lines.append("Current report — markdown:")
+        lines.append(report.markdown_report)
         return "\n".join(lines)
 
     async def _write_report(
