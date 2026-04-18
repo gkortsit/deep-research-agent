@@ -39,6 +39,6 @@ research_evaluator_agent = Agent(
     name="ResearchEvaluatorAgent",
     instructions=PROMPT,
     model="gpt-5.4",
-    model_settings=ModelSettings(reasoning=Reasoning(effort="high")),
+    model_settings=ModelSettings(reasoning=Reasoning(effort="medium")),
     output_type=ResearchEvaluation,
 )

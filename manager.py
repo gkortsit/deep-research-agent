@@ -6,7 +6,7 @@ from typing import TypedDict
 
 from rich.console import Console
 
-from agents import Runner, custom_span, gen_trace_id, trace
+from agents import Agent, Runner, custom_span, gen_trace_id, trace
 
 import config
 from subagents.planner_agent import (
@@ -90,14 +90,16 @@ class ResearchManager:
                 return plan
 
             for revision in range(1, config.PLAN_CRITIQUE_MAX_REVISIONS + 1):
-                self.printer.update_item(
-                    "planning",
-                    f"Critiquing plan (rev {revision}/{config.PLAN_CRITIQUE_MAX_REVISIONS})...",
+                critique_label = (
+                    f"Critiquing plan (rev {revision}/{config.PLAN_CRITIQUE_MAX_REVISIONS})"
                 )
+                self.printer.update_item("planning", f"{critique_label}...")
                 try:
-                    critique_result = await Runner.run(
+                    critique_result = await self._run_with_ticker(
                         plan_critic_agent,
                         self._format_plan_for_critique(query, plan),
+                        "planning",
+                        critique_label,
                     )
                     critique = critique_result.final_output_as(PlanCritique)
                 except Exception as e:
@@ -117,16 +119,16 @@ class ResearchManager:
                     )
                     break
 
-                self.printer.update_item(
-                    "planning",
-                    f"Plan score {critique.score}/10, revising...",
-                )
+                revise_label = f"Plan score {critique.score}/10, revising"
+                self.printer.update_item("planning", f"{revise_label}...")
                 try:
-                    revised = await Runner.run(
+                    revised = await self._run_with_ticker(
                         planner_agent,
                         build_revision_input(
                             query, plan, critique.issues, critique.suggestions
                         ),
+                        "planning",
+                        revise_label,
                     )
                     plan = revised.final_output_as(WebSearchPlan)
                 except Exception as e:
@@ -142,6 +144,27 @@ class ResearchManager:
                 is_done=True,
             )
             return plan
+
+    async def _run_with_ticker(
+        self, agent: Agent, input_text: str, printer_key: str, label: str
+    ):
+        """Run an agent while ticking elapsed-time updates on a printer item.
+
+        Applies AGENT_CALL_TIMEOUT_S so calls cannot hang forever.
+        """
+        task = asyncio.create_task(
+            asyncio.wait_for(
+                Runner.run(agent, input_text), timeout=config.AGENT_CALL_TIMEOUT_S
+            )
+        )
+        started = time.time()
+        while not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
+            except asyncio.TimeoutError:
+                elapsed = int(time.time() - started)
+                self.printer.update_item(printer_key, f"{label} ({elapsed}s)")
+        return await task
 
     def _format_plan_for_critique(self, query: str, plan: WebSearchPlan) -> str:
         lines = [f"Query: {query}", "", "Proposed plan:"]
@@ -205,14 +228,16 @@ class ResearchManager:
 
         with custom_span("Research evaluation"):
             for round_num in range(1, config.EVAL_MAX_EXTRA_ROUNDS + 1):
-                self.printer.update_item(
-                    "evaluating",
-                    f"Evaluating coverage (round {round_num}/{config.EVAL_MAX_EXTRA_ROUNDS})...",
+                eval_label = (
+                    f"Evaluating coverage (round {round_num}/{config.EVAL_MAX_EXTRA_ROUNDS})"
                 )
+                self.printer.update_item("evaluating", f"{eval_label}...")
                 try:
-                    eval_result = await Runner.run(
+                    eval_result = await self._run_with_ticker(
                         research_evaluator_agent,
                         self._format_results_for_evaluation(query, tagged_results),
+                        "evaluating",
+                        eval_label,
                     )
                     evaluation = eval_result.final_output_as(ResearchEvaluation)
                 except Exception as e:
