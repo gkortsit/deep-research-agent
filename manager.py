@@ -296,9 +296,17 @@ class ResearchManager:
             )
         return "\n".join(lines)
 
-    async def _write_report(self, query: str, search_results: list[str]) -> ReportData:
+    async def _write_report(
+        self,
+        query: str,
+        search_results: list[str],
+        input_override: str | None = None,
+    ) -> ReportData:
         self.printer.update_item("writing", "Thinking about report...")
-        input = f"Original query: {query}\nSummarized search results: {search_results}"
+        if input_override is None:
+            input = f"Original query: {query}\nSummarized search results: {search_results}"
+        else:
+            input = input_override
         result = Runner.run_streamed(
             writer_agent,
             input,
