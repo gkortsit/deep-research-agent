@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import TypedDict
 
 from rich.console import Console
 
@@ -23,6 +24,12 @@ from subagents.search_agent import search_agent
 from subagents.writer_agent import ReportData, writer_agent
 from printer.main import Printer
 from report_writer import save_report
+
+
+class TaggedResult(TypedDict):
+    id: int
+    query: str
+    summary: str
 
 
 class ResearchManager:
@@ -144,7 +151,7 @@ class ResearchManager:
 
     async def _perform_searches(
         self, items: list[WebSearchItem], id_offset: int = 0, label: str = "searching"
-    ) -> list[dict]:
+    ) -> list[TaggedResult]:
         with custom_span("Search the web"):
             self.printer.update_item(label, "Searching...")
             num_completed = 0
@@ -154,7 +161,7 @@ class ResearchManager:
                 asyncio.create_task(self._search_indexed(i + id_offset, item))
                 for i, item in enumerate(items)
             ]
-            results: list[dict] = []
+            results: list[TaggedResult] = []
             for task in asyncio.as_completed(tasks):
                 entry = await task
                 if entry is not None:
@@ -173,7 +180,7 @@ class ResearchManager:
             self.printer.update_item(label, summary, is_done=True)
             return results
 
-    async def _search_indexed(self, id_: int, item: WebSearchItem) -> dict | None:
+    async def _search_indexed(self, id_: int, item: WebSearchItem) -> TaggedResult | None:
         summary = await self._search(item)
         if summary is None:
             return None
@@ -191,8 +198,8 @@ class ResearchManager:
             return None
 
     async def _evaluate_and_fill_gaps(
-        self, query: str, tagged_results: list[dict]
-    ) -> list[dict]:
+        self, query: str, tagged_results: list[TaggedResult]
+    ) -> list[TaggedResult]:
         if not config.ENABLE_RESEARCH_EVAL:
             return tagged_results
 
@@ -255,7 +262,7 @@ class ResearchManager:
             return tagged_results
 
     def _format_results_for_evaluation(
-        self, query: str, tagged_results: list[dict]
+        self, query: str, tagged_results: list[TaggedResult]
     ) -> str:
         lines = [f"Original query: {query}", "", "Current research summaries:"]
         for entry in tagged_results:
