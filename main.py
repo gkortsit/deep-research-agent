@@ -1,8 +1,9 @@
 import asyncio
+from dotenv import load_dotenv
+from auto_mode.main import input_with_fallback
+from manager import ResearchManager
 
-from examples.auto_mode import input_with_fallback
-
-from .manager import ResearchManager
+load_dotenv()
 
 
 async def main() -> None:

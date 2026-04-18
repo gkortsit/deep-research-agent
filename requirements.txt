@@ -1,0 +1,4 @@
+openai-agents
+rich
+pydantic
+python-dotenv
