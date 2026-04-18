@@ -11,6 +11,7 @@ from subagents.planner_agent import WebSearchItem, WebSearchPlan, planner_agent
 from subagents.search_agent import search_agent
 from subagents.writer_agent import ReportData, writer_agent
 from printer.main import Printer
+from report_writer import save_report
 
 
 class ResearchManager:
@@ -40,6 +41,11 @@ class ResearchManager:
 
             final_report = f"Report summary\n\n{report.short_summary}"
             self.printer.update_item("final_report", final_report, is_done=True)
+
+            saved_path = save_report(report)
+            self.printer.update_item(
+                "save", f"Saved report to {saved_path}", is_done=True
+            )
 
             self.printer.end()
 
