@@ -306,7 +306,10 @@ class ResearchManager:
         summaries = [entry["summary"] for entry in tagged_results]
         report = await self._write_report(query, summaries)
 
-        if not config.ENABLE_WRITER_CRITIQUE:
+        if (
+            not config.ENABLE_WRITER_CRITIQUE
+            or config.WRITER_CRITIQUE_MAX_REVISIONS <= 0
+        ):
             return report
 
         with custom_span("Writer critique"):
@@ -319,7 +322,7 @@ class ResearchManager:
                 try:
                     critique_result = await self._run_with_ticker(
                         writer_critic_agent,
-                        self._format_report_for_critique(query, summaries, report),
+                        self._format_report_for_critique(query, tagged_results, report),
                         "reviewing",
                         critique_label,
                     )
@@ -377,11 +380,13 @@ class ResearchManager:
             return report
 
     def _format_report_for_critique(
-        self, query: str, summaries: list[str], report: ReportData
+        self, query: str, tagged_results: list[TaggedResult], report: ReportData
     ) -> str:
         lines = [f"Original query: {query}", "", "Research summaries:"]
-        for i, summary in enumerate(summaries):
-            lines.append(f"[id={i}] {summary}\n")
+        for entry in tagged_results:
+            lines.append(
+                f"[id={entry['id']}] query={entry['query']}\nsummary: {entry['summary']}\n"
+            )
         lines.append("")
         lines.append("Current report — short summary:")
         lines.append(report.short_summary)
