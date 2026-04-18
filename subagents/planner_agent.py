@@ -29,3 +29,22 @@ planner_agent = Agent(
     model_settings=ModelSettings(reasoning=Reasoning(effort="medium")),
     output_type=WebSearchPlan,
 )
+
+
+def build_revision_input(
+    query: str, previous_plan: WebSearchPlan, issues: list[str], suggestions: list[str]
+) -> str:
+    """Build the input string for a planner revision call given critic feedback."""
+    prev = "\n".join(
+        f"- {item.query} — {item.reason}" for item in previous_plan.searches
+    )
+    issues_text = "\n".join(f"- {i}" for i in issues) or "- (none specified)"
+    suggestions_text = "\n".join(f"- {s}" for s in suggestions) or "- (none specified)"
+    return (
+        f"Query: {query}\n\n"
+        f"Previous plan:\n{prev}\n\n"
+        f"Critique issues:\n{issues_text}\n\n"
+        f"Suggestions:\n{suggestions_text}\n\n"
+        "Produce an improved plan addressing the issues and suggestions. "
+        "You may reuse good searches from the previous plan, drop weak ones, and add new ones."
+    )
